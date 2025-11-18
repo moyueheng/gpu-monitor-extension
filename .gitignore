@@ -1,0 +1,61 @@
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# TypeScript编译输出
+out/
+*.tsbuildinfo
+
+# VSCode扩展文件
+*.vsix
+
+# 运行时文件
+*.log
+*.pid
+*.seed
+*.pid.lock
+
+# 覆盖率目录
+coverage/
+*.lcov
+
+# nyc测试覆盖率
+.nyc_output
+
+# 可选的npm缓存目录
+.npm
+
+# 可选的eslint缓存
+.eslintcache
+
+# dotenv环境变量文件
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# VSCode扩展开发特定文件
+.vscode-test/
+test-fixtures/
+
+# 编辑器目录和文件
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS生成的文件
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
