@@ -112,8 +112,13 @@ export class GPUMonitor {
                 // 尝试使用AMD GPU工具
                 return await this.getAMDGPUInfo();
             } catch (amdError) {
-                // 尝试使用系统工具获取GPU信息
-                return await this.getSystemGPUInfo();
+                try {
+                    // 尝试使用Apple Silicon GPU工具
+                    return await this.getAppleSiliconGPUInfo();
+                } catch (appleError) {
+                    // 尝试使用系统工具获取GPU信息
+                    return await this.getSystemGPUInfo();
+                }
             }
         }
     }
@@ -158,11 +163,156 @@ export class GPUMonitor {
         }
     }
 
+    private async getAppleSiliconGPUInfo(): Promise<GPUInfo[]> {
+        try {
+            // 首先检测是否为Apple Silicon
+            const isAppleSilicon = await this.detectAppleSilicon();
+            if (!isAppleSilicon) {
+                throw new Error('非Apple Silicon系统');
+            }
+
+            // 获取GPU基本信息
+            const gpuName = await this.getAppleSiliconGPUName();
+
+            // 并行获取各项指标以提高性能
+            const [usage, temperature, memoryInfo] = await Promise.allSettled([
+                this.getAppleSiliconGPUUsage(),
+                this.getAppleSiliconGPUTemperature(),
+                this.getAppleSiliconMemoryInfo()
+            ]);
+
+            const gpuInfo: GPUInfo = {
+                name: gpuName,
+                usage: usage.status === 'fulfilled' ? usage.value : 0,
+                temperature: temperature.status === 'fulfilled' ? temperature.value : 0,
+                memoryUsed: memoryInfo.status === 'fulfilled' ? memoryInfo.value.used : 0,
+                memoryTotal: memoryInfo.status === 'fulfilled' ? memoryInfo.value.total : 0,
+                powerUsage: 0 // Apple Silicon GPU功耗需要更复杂的计算
+            };
+
+            return [gpuInfo];
+        } catch (error) {
+            throw new Error('Apple Silicon GPU监控不可用');
+        }
+    }
+
+    private async detectAppleSilicon(): Promise<boolean> {
+        try {
+            if (process.platform !== 'darwin') {
+                return false;
+            }
+
+            // 检查CPU是否为Apple Silicon
+            const { stdout } = await execAsync('sysctl -n machdep.cpu.brand_string');
+            return stdout.trim().includes('Apple');
+        } catch (error) {
+            return false;
+        }
+    }
+
+    private async getAppleSiliconGPUName(): Promise<string> {
+        try {
+            // 使用system_profiler获取GPU信息
+            const { stdout } = await execAsync('system_profiler SPDisplaysDataType | grep "Chipset Model"');
+            const match = stdout.match(/Chipset Model:\s*(.+)/);
+            if (match && match[1]) {
+                return match[1].trim();
+            }
+
+            // 备用方案：从硬件信息获取
+            const { stdout: hwStdout } = await execAsync('system_profiler SPHardwareDataType | grep "Chip"');
+            const hwMatch = hwStdout.match(/Chip:\s*(.+)/);
+            if (hwMatch && hwMatch[1]) {
+                return hwMatch[1].trim();
+            }
+
+            return 'Apple GPU';
+        } catch (error) {
+            return 'Apple GPU';
+        }
+    }
+
+    private async getAppleSiliconGPUUsage(): Promise<number> {
+        try {
+            // 使用powermetrics获取GPU使用率
+            const { stdout } = await execAsync('sudo powermetrics -n 1 --samplers gpu_power -i 1000 | grep -A 20 "GPU Activity"');
+
+            // 解析GPU使用率百分比
+            const usageMatch = stdout.match(/(\d+)%/);
+            if (usageMatch) {
+                return parseFloat(usageMatch[1]);
+            }
+
+            return 0;
+        } catch (error) {
+            try {
+                // 备用方案：使用更简单的命令
+                const { stdout } = await execAsync('sudo powermetrics -n 1 -s gpu_power | grep "GPU utilization"');
+                const match = stdout.match(/(\d+\.?\d*)/);
+                return match ? parseFloat(match[1]) : 0;
+            } catch (fallbackError) {
+                return 0;
+            }
+        }
+    }
+
+    private async getAppleSiliconGPUTemperature(): Promise<number> {
+        try {
+            // 使用powermetrics获取GPU温度
+            const { stdout } = await execAsync('sudo powermetrics -n 1 --samplers smc | grep "GPU die temperature"');
+
+            // 解析温度值
+            const tempMatch = stdout.match(/(\d+\.?\d*)\s*C/);
+            if (tempMatch) {
+                return parseFloat(tempMatch[1]);
+            }
+
+            return 0;
+        } catch (error) {
+            try {
+                // 备用方案：获取通用温度
+                const { stdout } = await execAsync('sudo powermetrics -n 1 --samplers smc | grep -i "temperature" | head -1');
+                const match = stdout.match(/(\d+\.?\d*)\s*C/);
+                return match ? parseFloat(match[1]) : 0;
+            } catch (fallbackError) {
+                return 0;
+            }
+        }
+    }
+
+    private async getAppleSiliconMemoryInfo(): Promise<{ used: number; total: number }> {
+        try {
+            // 获取统一内存信息
+            const { stdout } = await execAsync('vm_stat | grep "Pages free"');
+            const freePagesMatch = stdout.match(/(\d+)/);
+            const freePages = freePagesMatch ? parseInt(freePagesMatch[1]) : 0;
+
+            // 获取页面大小
+            const { stdout: pageSizeStdout } = await execAsync('vm_stat | head -1');
+            const pageSizeMatch = pageSizeStdout.match(/(\d+)/);
+            const pageSize = pageSizeMatch ? parseInt(pageSizeMatch[1]) : 4096;
+
+            // 获取总内存
+            const { stdout: totalMemStdout } = await execAsync('sysctl -n hw.memsize');
+            const totalMemory = parseInt(totalMemStdout.trim());
+
+            const freeMemory = freePages * pageSize;
+            const usedMemory = totalMemory - freeMemory;
+
+            return {
+                used: Math.round(usedMemory / (1024 * 1024)), // 转换为MB
+                total: Math.round(totalMemory / (1024 * 1024)) // 转换为MB
+            };
+        } catch (error) {
+            return { used: 0, total: 0 };
+        }
+    }
+
     private async getSystemGPUInfo(): Promise<GPUInfo[]> {
         try {
             // 在Linux系统上尝试从 /sys/class/drm 获取GPU信息
             if (process.platform === 'linux') {
-                const { stdout } = await execAsync('lshw -c display 2>/dev/null | grep -E "(product|configuration)"');
+                await execAsync('lshw -c display 2>/dev/null | grep -E "(product|configuration)"');
 
                 const gpuInfo: GPUInfo = {
                     name: 'System GPU',
@@ -175,6 +325,23 @@ export class GPUMonitor {
 
                 return [gpuInfo];
             }
+
+            // 在macOS上使用system_profiler作为备用方案
+            if (process.platform === 'darwin') {
+                await execAsync('system_profiler SPDisplaysDataType | grep -E "(Chipset Model|VRAM)"');
+
+                const gpuInfo: GPUInfo = {
+                    name: 'macOS GPU',
+                    usage: 0, // 基础信息无法获取使用率
+                    temperature: 0,
+                    memoryUsed: 0,
+                    memoryTotal: 0,
+                    powerUsage: 0
+                };
+
+                return [gpuInfo];
+            }
+
             throw new Error('无法获取GPU信息');
         } catch (error) {
             throw new Error('未检测到支持的GPU或GPU监控工具');

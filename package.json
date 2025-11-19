@@ -99,6 +99,11 @@
     "monitor",
     "nvidia",
     "amd",
+    "apple silicon",
+    "m1",
+    "m2",
+    "m3",
+    "macos",
     "performance",
     "status bar"
   ],

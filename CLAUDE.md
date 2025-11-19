@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-这是一个VSCode GPU监控插件，使用TypeScript开发，支持实时监控NVIDIA和AMD GPU的使用情况、温度和内存状态。
+这是一个VSCode GPU监控插件，使用TypeScript开发，支持实时监控NVIDIA、AMD GPU和苹果M系列芯片的使用情况、温度和内存状态。
 
 ## 常用开发命令
 
@@ -63,10 +63,11 @@ vsce publish
 - 配置管理：实时监听VSCode配置变更
 - 错误处理：优雅降级和详细错误报告
 
-**GPU信息获取策略** (`src/gpuMonitor.ts:103-179`)
+**GPU信息获取策略** (`src/gpuMonitor.ts:106-124`)
 1. 首先尝试 `nvidia-smi` 获取NVIDIA GPU信息
 2. 失败后尝试 `rocm-smi` 获取AMD GPU信息
-3. 最后尝试系统工具如 `lshw` 获取基本GPU信息
+3. 再尝试 `powermetrics` 和 `system_profiler` 获取Apple Silicon GPU信息
+4. 最后尝试系统工具如 `lshw` 获取基本GPU信息
 
 **插件生命周期** (`src/extension.ts`)
 - `activate()` - 初始化GPUMonitor实例并注册命令
@@ -95,6 +96,11 @@ nvidia-smi --query-gpu=name,utilization.gpu,temperature.gpu,memory.used,memory.t
 # AMD GPU测试
 rocm-smi --showuse --showtemp --showmeminfo vram
 
+# Apple Silicon测试
+system_profiler SPDisplaysDataType
+sudo powermetrics -n 1 --samplers gpu_power
+sysctl -n machdep.cpu.brand_string
+
 # 系统信息测试
 lshw -c display
 ```
@@ -106,10 +112,12 @@ lshw -c display
 - 所有外部命令调用都使用异步方式并包含错误处理
 - 配置变更会自动重启监控服务
 - 支持多GPU环境，显示主要GPU信息在状态栏
+- Apple Silicon特殊处理：使用统一内存架构，需要管理员权限获取详细指标
 
 ## 测试要求
 
 - 本地测试使用F5启动开发窗口
-- 测试不同GPU环境（NVIDIA/AMD/无GPU）
+- 测试不同GPU环境（NVIDIA/AMD/Apple Silicon/无GPU）
 - 验证配置变更实时生效
 - 检查状态栏显示和工具提示信息
+- 在macOS上测试管理员权限相关功能
